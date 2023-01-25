@@ -32,18 +32,29 @@ app.engine('handlebars', handlebars());
 app.set('view engine', 'handlebars');
 app.set('views', path.join(__dirname, 'views'));
 
-app.get('/', (req, res) => {
-  res.render('index');
-});
+// authorization code flow
+function validateIDToken(idToken, nonce) {
+  const decodedToken = jwt.decode(idToken);
+  console.log('decodedToken', decodedToken);
+  const {
+    nonce: decodedNonce,
+    aud: audience,
+    exp: expirationDate,
+    iss: issuer
+  } = decodedToken;
+  const currentTime = Math.floor(Date.now() / 1000);
+  const expectedAudience = process.env.CLIENT_ID;
 
-app.get('/profile', (req, res) => {
-  const { idToken, decodedIdToken } = req.session;
-  //console.log('decodeIdToken', decodedIdToken);
-  res.render('profile', {
-    idToken,
-    decodedIdToken
-  });
-});
+  if (
+    audience !== expectedAudience ||
+    decodedNonce !== nonce ||
+    expirationDate < currentTime ||
+    issuer !== oidcProviderInfo['issuer']
+  )
+    throw Error();
+  // return the decoded token
+  return decodedToken;
+}
 
 //code verifier
 function base64URLEncode(str) {
@@ -63,6 +74,19 @@ function sha256(buffer) {
     .digest();
 }
 const challenge = base64URLEncode(sha256(verifier));
+
+app.get('/', (req, res) => {
+  res.render('index');
+});
+
+app.get('/profile', (req, res) => {
+  const { idToken, decodedIdToken } = req.session;
+  //console.log('decodeIdToken', decodedIdToken);
+  res.render('profile', {
+    idToken,
+    decodedIdToken
+  });
+});
 
 app.get('/login', (req, res) => {
   // define constants for the authorization request
@@ -101,30 +125,6 @@ app.get('/login', (req, res) => {
   // add cookie to the response and issue a 302 redirecting user
   res.cookie(nonceCookie, nonce, options).redirect(authURL);
 });
-
-// authorization code flow
-function validateIDToken(idToken, nonce) {
-  const decodedToken = jwt.decode(idToken);
-  console.log('decodedToken', decodedToken);
-  const {
-    nonce: decodedNonce,
-    aud: audience,
-    exp: expirationDate,
-    iss: issuer
-  } = decodedToken;
-  const currentTime = Math.floor(Date.now() / 1000);
-  const expectedAudience = process.env.CLIENT_ID;
-
-  if (
-    audience !== expectedAudience ||
-    decodedNonce !== nonce ||
-    expirationDate < currentTime ||
-    issuer !== oidcProviderInfo['issuer']
-  )
-    throw Error();
-  // return the decoded token
-  return decodedToken;
-}
 
 app.get('/callback', async (req, res) => {
   //********  Implicit Code Flow    ****/
